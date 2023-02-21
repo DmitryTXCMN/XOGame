@@ -1,0 +1,99 @@
+using System.Reflection;
+using Back;
+using Back.Hubs;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using OpenIddict.Abstractions;
+
+var builder = WebApplication.CreateBuilder(args);
+
+
+
+builder.Services.AddControllers();
+// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+builder.Services.AddEndpointsApiExplorer();
+
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+    .AddJwtBearer(options => options.ClaimsIssuer = JwtBearerDefaults.AuthenticationScheme)
+    .AddCookie(options =>
+    {
+        options.LoginPath = new PathString("/Auth/Login");
+    });
+
+builder.Services.AddAuthorization();
+builder.Services.AddDbContext<AppDbContext>(options =>
+{
+    options.UseNpgsql("Host=postgres;Port=5432;Username=admin;Password=admin;Database=xogame;",
+        action => action.MigrationsAssembly(Assembly.GetExecutingAssembly().FullName));
+    options.UseOpenIddict();
+})
+    .AddIdentity<IdentityUser<Guid>, IdentityRole<Guid>>(options =>
+    {
+        options.Password.RequireDigit = false;
+        options.Password.RequiredLength = 1;
+        options.Password.RequireLowercase = false;
+        options.Password.RequireUppercase = false;
+        options.Password.RequiredUniqueChars = 0;
+        options.Password.RequireNonAlphanumeric = false;
+    })
+    .AddEntityFrameworkStores<AppDbContext>()
+    .AddDefaultTokenProviders();
+
+builder.Services.Configure<IdentityOptions>(options =>
+{
+    options.ClaimsIdentity.UserNameClaimType = OpenIddictConstants.Claims.Name;
+    options.ClaimsIdentity.UserIdClaimType = OpenIddictConstants.Claims.Subject;
+});
+builder.Services.AddOpenIddict()
+    .AddCore(options =>
+        options.UseEntityFrameworkCore()
+            .UseDbContext<AppDbContext>())
+    .AddServer(options =>
+    {
+        options
+            .AcceptAnonymousClients()
+            .AllowPasswordFlow()
+            .AllowRefreshTokenFlow();
+        options.SetTokenEndpointUris("/Auth/Login");
+        var cfg = options.UseAspNetCore();
+        if (builder.Environment.IsDevelopment())
+            cfg.DisableTransportSecurityRequirement();
+        cfg.EnableTokenEndpointPassthrough();
+        options
+            .AddDevelopmentEncryptionCertificate()
+            .AddDevelopmentSigningCertificate();
+    })
+    .AddValidation(options =>
+    {
+        options.UseAspNetCore();
+        options.UseLocalServer();
+    });
+
+builder.Services.AddSignalR(opt => opt.EnableDetailedErrors = true);
+
+var app = builder.Build();
+
+await using (var scope = app.Services.CreateAsyncScope())
+{
+    var context = scope.ServiceProvider.GetService<AppDbContext>();
+    await context!.Database.MigrateAsync();
+}
+
+app.UseCors(x => x.AllowAnyHeader().AllowAnyMethod().WithOrigins("http://localhost:3000").AllowCredentials());
+
+app.UseHttpsRedirection();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapControllers();
+
+app.MapHub<GameHub>("/gamehub");
+
+app.Run();

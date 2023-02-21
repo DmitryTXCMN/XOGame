@@ -1,0 +1,45 @@
+services:
+    front:
+        build:
+            context: .
+            dockerfile: /Front/Dockerfile
+        ports:
+            - 3000:3000
+        environment:
+            - PORT=3000
+            - WATCHPACK_POLLING=true
+        volumes:
+            - './front/:/app/'
+            - "/app/node_modules"
+    
+    rabbit:
+        image: rabbitmq:3-management
+        ports:
+            - 5671:5671
+            - 5672:5672
+            - 15672:15672
+    
+    postgres:
+        image: postgres:14.5
+        environment:
+            POSTGRES_DB: "xogame"
+            POSTGRES_USER: "admin"
+            POSTGRES_PASSWORD: "admin"
+            PGDATA: "/var/lib/postgresql/data/pgdata"
+        ports:
+            - 5432:5432
+    
+    back:
+        build:
+            context: .
+            dockerfile: /back/Dockerfile
+        ports:
+            - 7035:7035
+        environment:
+            - ASPNETCORE_ENVIRONMENT=Development
+        volumes:
+            - './back/:/app/'
+        depends_on:
+            - rabbit
+            - postgres
+    
